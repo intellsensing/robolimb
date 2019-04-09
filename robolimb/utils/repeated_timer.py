@@ -23,7 +23,8 @@ class RepeatedTimer(object):
         self.next_call = time.time()
         if not self.is_running:
             self.next_call += self.interval
-            self._timer = threading.Timer(self.next_call - time.time(), self._run)
+            self._timer = threading.Timer(self.next_call - time.time(),
+                                          self._run)
             self._timer.start()
             self.is_running = True
 
