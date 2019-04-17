@@ -1,8 +1,13 @@
 import threading
+import time
+
 
 class RepeatedTimer(object):
     """
-    A simple timer implementation that repeats itself.
+    A simple timer implementation that repeats itself and avoids drift over
+    time.
+
+    Implementation based on https://stackoverflow.com/a/40965385.
 
     Parameters
     ----------
@@ -17,32 +22,32 @@ class RepeatedTimer(object):
     kwargs : key,value mappings
         Keyword-argument dict for target function
     """
-    def __init__(self, target, interval, name=None, args=[], kwargs={}):
+
+    def __init__(self, target, interval, args=(), kwargs={}):
 
         self.target = target
         self.interval = interval
-        self.name = name
         self.args = args
         self.kwargs = kwargs
 
-        self._thread = None
-        self._event = None
-        self._bStarted = False
+        self._timer = None
+        self._is_running = False
+        self._next_call = time.time()
+        self.start()
 
     def _run(self):
-        """Runs the thread that emulates the timer."""
-        while not self._event.wait(self.interval):
-            self.target(*self.args, **self.kwargs)
+        self._is_running = False
+        self.start()
+        self.target(*self.args, **self.kwargs)
 
     def start(self):
-        """Starts the timer."""
-        if (self._thread == None):
-            self._event = threading.Event()
-            self._thread = threading.Thread(None, self._run, self.name)
-            self._thread.start()
+        if not self._is_running:
+            self._next_call += self.interval
+            self._timer = threading.Timer(self._next_call - time.time(),
+                                          self._run)
+            self._timer.start()
+            self._is_running = True
 
     def stop(self):
-        """Stops the timer."""
-        if (self._thread != None):
-            self._event.set()
-            self._thread = None
+        self._timer.cancel()
+        self._is_running = False
