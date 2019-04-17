@@ -1,7 +1,7 @@
 """
 Grips
 =====
-A simple console application that takes input from the user in orderto execute
+A simple console application that takes input from the user in order to execute
 a specified grip. The grip is executed at maximum speed and in a single phase
 (i.e., there is no differentation between pre-grasp and grasp).
 """
