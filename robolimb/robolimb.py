@@ -1,5 +1,3 @@
-"""Low-level control via a can bus interface (Peak-can USB)."""
-
 import threading
 
 from can.interfaces.pcan import PCANBasic as pcan
@@ -12,6 +10,7 @@ FINGERS = {'thumb': 1, 'index': 2, 'middle': 3, 'ring': 4,
 ACTIONS = {'stop': 0, 'close': 1, 'open': 2}
 STATUS = {0: 'stop', 1: 'closing', 2: 'opening', 3: 'stalled close',
           4: 'stalled open'}
+
 
 class RoboLimbCAN(object):
     """ Robo-limb control via CAN bus interface.
@@ -58,7 +57,7 @@ class RoboLimbCAN(object):
         self.read_rate = read_rate
         self.finger_status = [None] * N_DOF
         self.finger_current = [None] * N_DOF
-        self.msg_read = RepeatedTimer(self.read_rate, self.__read_messages)
+        self.msg_read = RepeatedTimer(self.__read_messages, self.read_rate)
         self.__is_moving = False
 
     def start(self):
@@ -89,10 +88,10 @@ class RoboLimbCAN(object):
             If False and the finger status is ```opening``` or ```stalled
             open``` the command will not be sent.
         """
-        velocity = self.def_vel if velocity == None else int(velocity)
+        velocity = self.def_vel if velocity is None else int(velocity)
         finger = self.__get_finger_id(finger)
-        if self.finger_status[finger-1] in ['opening',
-                                            'stalled open'] and force is False:
+        if self.finger_status[finger - 1] in ['opening',
+                                              'stalled open'] and force is False:
             pass
         else:
             self.__motor_command(finger, ACTIONS['open'], velocity)
@@ -112,10 +111,10 @@ class RoboLimbCAN(object):
             close``` the command will not be sent.
 
         """
-        velocity = self.def_vel if velocity == None else int(velocity)
+        velocity = self.def_vel if velocity is None else int(velocity)
         finger = self.__get_finger_id(finger)
-        if self.finger_status[finger-1] in ['closing',
-                                            'stalled close'] and force is False:
+        if self.finger_status[finger - 1] in ['closing',
+                                              'stalled close'] and force is False:
             pass
         else:
             self.__motor_command(finger, ACTIONS['close'], velocity)
@@ -131,11 +130,11 @@ class RoboLimbCAN(object):
             If the finger status is ```stop``` the command will not be sent.
         """
         finger = self.__get_finger_id(finger)
-        if self.finger_status[finger-1] is 'stop' and force is False:
+        if self.finger_status[finger - 1] is 'stop' and force is False:
             pass
-        elif self.finger_status[finger-1] in [
+        elif self.finger_status[finger - 1] in [
                 'stalled open', 'stalled closed'] and force is False:
-            self.finger_status[finger-1] = 'stop'
+            self.finger_status[finger - 1] = 'stop'
         else:
             self.__motor_command(finger, ACTIONS['stop'], 297)
 
@@ -151,9 +150,9 @@ class RoboLimbCAN(object):
             If False and the finger status is ```opening``` or ```stalled
             open``` the command will not be sent.
         """
-        velocity = self.def_vel if velocity == None else int(velocity)
+        velocity = self.def_vel if velocity is None else int(velocity)
         [self.open_finger(i, velocity=velocity, force=force) for i in range(
-            1,N_DOF)]
+            1, N_DOF)]
 
     def open_all(self, velocity=None, force=True):
         """Opens all digits including thumb rotator at specified velocity.
@@ -167,7 +166,7 @@ class RoboLimbCAN(object):
             If False and the finger status is ```opening``` or ```stalled
             open``` the command will not be sent.
         """
-        velocity = self.def_vel if velocity == None else int(velocity)
+        velocity = self.def_vel if velocity is None else int(velocity)
         self.open_fingers(velocity=velocity, force=force)
         threading.Timer(0.5, self.open_finger, [6, velocity, force]).start()
 
@@ -183,9 +182,9 @@ class RoboLimbCAN(object):
             If False and the finger status is ```closing``` or ```stalled
             close``` the command will not be sent.
         """
-        velocity = self.def_vel if velocity == None else int(velocity)
+        velocity = self.def_vel if velocity is None else int(velocity)
         [self.close_finger(i, velocity=velocity, force=force) for i in range(
-            1,N_DOF)]
+            1, N_DOF)]
 
     def close_all(self, velocity=None, force=True):
         """Closes all digits including thumb rotator at specified velocity.
@@ -199,7 +198,7 @@ class RoboLimbCAN(object):
             If False and the finger status is ```closing``` or ```stalled
             close``` the command will not be sent.
         """
-        velocity = self.def_vel if velocity == None else int(velocity)
+        velocity = self.def_vel if velocity is None else int(velocity)
         self.close_finger(6, velocity=velocity, force=force)
         threading.Timer(0.5, self.close_fingers, [velocity, force]).start()
 
@@ -211,7 +210,7 @@ class RoboLimbCAN(object):
         force : boolean, optional (default: True)
             If the finger status is ```stop``` the command will not be sent.
         """
-        [self.stop_finger(i, force=force) for i in range(1,N_DOF)]
+        [self.stop_finger(i, force=force) for i in range(1, N_DOF)]
 
     def stop_all(self, force=True):
         """Stops execution of movement for all digits including thumb
@@ -222,13 +221,13 @@ class RoboLimbCAN(object):
         force : boolean, optional (default: True)
             If the finger status is ```stop``` the command will not be sent.
         """
-        [self.stop_finger(i, force=force) for i in range(1,N_DOF + 1)]
+        [self.stop_finger(i, force=force) for i in range(1, N_DOF + 1)]
 
     def __create_message(self, finger, action, velocity):
         """Creates a CAN message for a motor command."""
         velocity = format(velocity, '04x')
-        msg = [0]*4
-        msg[0] = '00' # Empty
+        msg = [0] * 4
+        msg[0] = '00'  # Empty
         msg[1] = str(action)
         msg[2] = velocity[0:2]
         msg[3] = velocity[2:4]
@@ -249,39 +248,37 @@ class RoboLimbCAN(object):
         """Processes an incoming CAN message and updates finger_status and
         finger_current attributes.
         """
-        finger_id = self.__get_read_id(hex(can_msg[1].ID))
-        self.finger_status[finger_id-1] = STATUS[can_msg[1].DATA[1]]
+        finger_id = self.__can_to_finger_id(hex(can_msg[1].ID))
+        self.finger_status[finger_id - 1] = STATUS[can_msg[1].DATA[1]]
         self.__is_moving = bool(len(set(self.finger_status) &
-                                 {'opening', 'closing'}))
-        current_hex = str(can_msg[1].DATA[2])+str(can_msg[1].DATA[3])
-        current_hex = str(int(hex(can_msg[1].DATA[2]),16)) + str(int(hex(
-            can_msg[1].DATA[3]),16))
+                                    {'opening', 'closing'}))
+        current_hex = str(can_msg[1].DATA[2]) + str(can_msg[1].DATA[3])
+        current_hex = str(int(hex(can_msg[1].DATA[2]), 16)) + str(int(hex(
+            can_msg[1].DATA[3]), 16))
         # See p. 11 of robo-limb manual for conversion to Amps
-        self.finger_current[finger_id-1] = int(current_hex, 16) / 21.825
+        self.finger_current[finger_id - 1] = int(current_hex, 16) / 21.825
 
     def __motor_command(self, finger, action, velocity):
         """Issues a low-level finger command."""
         CANMsg = pcan.TPCANMsg()
-        CANMsg.ID = self.__get_send_id(finger)
+        CANMsg.ID = self.__finger_to_can_id(finger)
         CANMsg.LEN = 4
         CANMsg.MSGTYPE = pcan.PCAN_MESSAGE_STANDARD
         msg = self.__create_message(finger, action=action, velocity=velocity)
         for i in range(CANMsg.LEN):
-            CANMsg.DATA[i] = int(msg[i],16)
-        self.bus.Write(self.channel,CANMsg)
+            CANMsg.DATA[i] = int(msg[i], 16)
+        self.bus.Write(self.channel, CANMsg)
 
     def __get_finger_id(self, finger):
         """Returns finger ID. Input can be either int or string."""
-        return FINGERS[finger] if type(finger) == str else int(finger)
+        return FINGERS[finger] if isinstance(finger, str) else int(finger)
 
-    def __get_send_id(self,finger):
-        """Returns the ID for sending a CAN message to specified finger."""
-        return  int('0x10' + str(finger), 16)
+    def __finger_to_can_id(self, finger):
+        """Returns the CAN ID from a corresponding finger ID."""
+        return int('0x10' + str(finger), 16)
 
-    def __get_read_id(self,id_string):
-        """Returns the finger ID from a corresponding CAN ID when reading a
-        message.
-        """
+    def __can_to_finger_id(self, id_string):
+        """Returns the finger ID from a corresponding CAN ID."""
         return int(id_string[4])
 
     @property
