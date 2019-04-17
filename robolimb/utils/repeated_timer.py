@@ -1,33 +1,48 @@
 import threading
-import time
 
 class RepeatedTimer(object):
-    """A timer implementation that repeats itself.
-
-    Code adapted from: https://stackoverflow.com/a/40965385
     """
-    def __init__(self, interval, function, *args, **kwargs):
-        self._timer = None
+    A simple timer implementation that repeats itself.
+
+    Parameters
+    ----------
+    target : callable
+        Target function
+    interval : float
+        Target function repetition interval
+    name : str, optional (default: None)
+        Thread name
+    args : list
+        Non keyword-argument list for target function
+    kwargs : key,value mappings
+        Keyword-argument dict for target function
+    """
+    def __init__(self, target, interval, name=None, args=[], kwargs={}):
+
+        self.target = target
         self.interval = interval
-        self.function = function
+        self.name = name
         self.args = args
         self.kwargs = kwargs
-        self.is_running = False
+
+        self._thread = None
+        self._event = None
+        self._bStarted = False
 
     def _run(self):
-        self.is_running = False
-        self.start()
-        self.function(*self.args, **self.kwargs)
+        """Runs the thread that emulates the timer."""
+        while not self._event.wait(self.interval):
+            self.target(*self.args, **self.kwargs)
 
     def start(self):
-        self.next_call = time.time()
-        if not self.is_running:
-            self.next_call += self.interval
-            self._timer = threading.Timer(self.next_call - time.time(),
-                                          self._run)
-            self._timer.start()
-            self.is_running = True
+        """Starts the timer."""
+        if (self._thread == None):
+            self._event = threading.Event()
+            self._thread = threading.Thread(None, self._run, self.name)
+            self._thread.start()
 
     def stop(self):
-        self._timer.cancel()
-        self.is_running = False
+        """Stops the timer."""
+        if (self._thread != None):
+            self._event.set()
+            self._thread = None
