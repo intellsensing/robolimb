@@ -1,4 +1,4 @@
-# robolimb
+# Robolimb
 Interface the Touch Bionics (Össur) RoboLimb prosthetic/robotic hand in Python.
 
 ## Dependencies
