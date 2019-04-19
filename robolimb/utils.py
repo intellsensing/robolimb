@@ -33,7 +33,6 @@ class RepeatedTimer(object):
         self._timer = None
         self._is_running = False
         self._next_call = time.time()
-        self.start()
 
     def _run(self):
         self._is_running = False
