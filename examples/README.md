@@ -1,4 +1,4 @@
-# Robo-limb examples directory
+# Robolimb examples directory
 
 [finger_movement.py](finger_movement.py) Takes input from user to move a single degree of freedom at specified speed.
 
