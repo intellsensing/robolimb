@@ -1,8 +1,8 @@
-from robolimb.utils import RepeatedTimer
 import threading
 import time
 import math
 
+from robolimb.utils import RepeatedTimer
 
 def test_repeated_timer():
     class TestClass(object):
