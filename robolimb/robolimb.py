@@ -55,8 +55,10 @@ class RoboLimbCAN(object):
         self.interrupt = interrupt
         self.def_vel = def_vel
         self.read_rate = read_rate
+
         self.finger_status = [None] * N_DOF
         self.finger_current = [None] * N_DOF
+
         self.msg_read = RepeatedTimer(self.__read_messages, self.read_rate)
         self.__is_moving = False
 
