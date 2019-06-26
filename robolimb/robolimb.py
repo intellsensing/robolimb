@@ -228,7 +228,7 @@ class RoboLimbCAN(object):
         """
         [self.stop_finger(i, force=force) for i in range(1, N_DOF + 1)]
 
-    def __create_message(self, finger, action, velocity):
+    def __create_message(self, action, velocity):
         """Creates a CAN message for a motor command."""
         velocity = format(velocity, '04x')
         msg = [0] * 4
@@ -269,7 +269,7 @@ class RoboLimbCAN(object):
         CANMsg.ID = self.__finger_to_can_id(finger)
         CANMsg.LEN = 4
         CANMsg.MSGTYPE = PCAN_MESSAGE_STANDARD
-        msg = self.__create_message(finger, action=action, velocity=velocity)
+        msg = self.__create_message(action=action, velocity=velocity)
         for i in range(CANMsg.LEN):
             CANMsg.DATA[i] = int(msg[i], 16)
         self.bus.Write(self.channel, CANMsg)
