@@ -1,6 +1,9 @@
 import threading
 
-from can.interfaces.pcan import PCANBasic as pcan
+from can.interfaces.pcan.basic import (PCANBasic, PCAN_USBBUS1, PCAN_BAUD_1M,
+                                       PCAN_TYPE_ISA, PCAN_ERROR_QRCVEMPTY,
+                                       PCAN_ERROR_OK, TPCANMsg,
+                                       PCAN_MESSAGE_STANDARD)
 from .utils import RepeatedTimer
 
 # Refer to robo-limb manual for definition of number codes used below
@@ -43,9 +46,9 @@ class RoboLimbCAN(object):
     def __init__(self,
                  def_vel=297,
                  read_rate=0.02,
-                 channel=pcan.PCAN_USBBUS1,
-                 b_rate=pcan.PCAN_BAUD_1M,
-                 hw_type=pcan.PCAN_TYPE_ISA,
+                 channel=PCAN_USBBUS1,
+                 b_rate=PCAN_BAUD_1M,
+                 hw_type=PCAN_TYPE_ISA,
                  io_port=0x3BC,
                  interrupt=3):
         self.channel = channel
@@ -64,7 +67,7 @@ class RoboLimbCAN(object):
 
     def start(self):
         """Starts the connection."""
-        self.bus = pcan.PCANBasic()
+        self.bus = PCANBasic()
         self.bus.Initialize(Channel=self.channel, Btr0Btr1=self.b_rate,
                             HwType=self.hw_type, IOPort=self.io_port,
                             Interrupt=self.interrupt)
@@ -240,9 +243,9 @@ class RoboLimbCAN(object):
         message is found, looks again until queue is empty or an error occurs.
         """
         stsResult = 0
-        while not (stsResult & pcan.PCAN_ERROR_QRCVEMPTY):
+        while not (stsResult & PCAN_ERROR_QRCVEMPTY):
             can_msg = self.bus.Read(self.channel)
-            if can_msg[0] == pcan.PCAN_ERROR_OK:
+            if can_msg[0] == PCAN_ERROR_OK:
                 self.__process_message(can_msg)
             stsResult = can_msg[0]
 
@@ -262,10 +265,10 @@ class RoboLimbCAN(object):
 
     def __motor_command(self, finger, action, velocity):
         """Issues a low-level finger command."""
-        CANMsg = pcan.TPCANMsg()
+        CANMsg = TPCANMsg()
         CANMsg.ID = self.__finger_to_can_id(finger)
         CANMsg.LEN = 4
-        CANMsg.MSGTYPE = pcan.PCAN_MESSAGE_STANDARD
+        CANMsg.MSGTYPE = PCAN_MESSAGE_STANDARD
         msg = self.__create_message(finger, action=action, velocity=velocity)
         for i in range(CANMsg.LEN):
             CANMsg.DATA[i] = int(msg[i], 16)
