@@ -286,6 +286,9 @@ class RoboLimbCAN(object):
         """Returns the finger ID from a corresponding CAN ID."""
         return int(id_string[4])
 
+    def __del__(self):
+        self.stop()
+
     @property
     def is_moving(self):
         """Flag indicating whether at least one finger is moving."""
