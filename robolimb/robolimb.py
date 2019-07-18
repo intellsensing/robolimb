@@ -7,11 +7,44 @@ from can.interfaces.pcan.basic import (PCANBasic, PCAN_USBBUS1, PCAN_BAUD_1M,
 
 # Refer to robo-limb manual for definition of number codes below
 N_DOF = 6
-FINGERS = {'thumb': 1, 'index': 2, 'middle': 3, 'ring': 4,
-           'little': 5, 'rotator': 6}
-ACTIONS = {'stop': 0, 'close': 1, 'open': 2}
-STATUS = {0: 'stop', 1: 'closing', 2: 'opening', 3: 'stalled close',
-          4: 'stalled open'}
+FINGERS = {
+    'thumb': 1,
+    'index': 2,
+    'middle': 3,
+    'ring': 4,
+    'little': 5,
+    'rotator': 6
+}
+
+ACTIONS = {
+    'stop': 0,
+    'close': 1,
+    'open': 2
+}
+
+STATUS = {
+    0: 'stop',
+    1: 'closing',
+    2: 'opening',
+    3: 'stalled close',
+    4: 'stalled open'
+}
+
+QUICK_GRIPS = {
+    'normal': '00',
+    'standard_precision_pinch_closed': '01',
+    'standard_tripod_closed': '02',
+    'thumb_park_continuous': '03',
+    'lateral_grip': '05',
+    'index_point': '06',
+    'standard_precision_pinch_opened': '07',
+    'thumb_precision_pinch_closed': '09',
+    'thumb_precision_pinch_opened': '0A',
+    'thumb_tripod_closed': '0B',
+    'standard_tripod_opened': '0D',
+    'thumb_tripod_opened': '0E',
+    'cover': '18'
+}
 
 
 class RoboLimbCAN(object):
@@ -354,6 +387,27 @@ class RoboLimbCAN(object):
             self.__update_fingers()
         [self.stop_finger(i, force, False) for i in range(1, N_DOF + 1)]
 
+    def quick_grip(self, grip):
+        """Performs quick grip.
+
+        Depending on the specified grip, some of the fingers will be locked and
+        will not respond to open/close commands until the hand is set back to
+        ``normal`` mode.
+
+        Parameters
+        ----------
+        grip : type
+            Description of parameter `grip`.
+        """
+        if grip not in QUICK_GRIPS.keys():
+            raise ValueError("The specified grip is invalid.")
+
+        id = int('0x301', 16)
+        msg = ['0', '0', '0', QUICK_GRIPS[grip]]
+        can_msg = self.__can_message(id, msg)
+
+        self.bus.Write(self.channel, can_msg)
+
     def get_serial_number(self):
         """Queries the device serial number.
 
@@ -535,6 +589,30 @@ class RoboLimbCAN(object):
             if f_id == 6:
                 self.__rotator_edge = thumb_edge
 
+    def __get_quick_grip(self):
+        """Queries quick grip.
+
+        Returns
+        -------
+        grip : str
+            Quick grip.
+        """
+        id = int('0x302', 16)
+        msg = ['0', '0', '0', '0']
+        can_msg = self.__can_message(id, msg)
+
+        # Reset queue such that first received message is the query response
+        self.reset_bus()
+        self.bus.Write(self.channel, can_msg)
+        grip_msg = self.__read_messages(num_messages=1)[0]
+        # Grip codes have two digits, fill with zeros if needed
+        code = hex(grip_msg[1].DATA[3])[2:].zfill(2)
+        for grip_, code_ in QUICK_GRIPS.items():
+            if code_ == code:
+                grip = grip_
+
+        return grip
+
     def __get_finger_id(self, finger):
         """Returns finger ID. Input can be either int or string."""
         return FINGERS[finger] if isinstance(finger, str) else int(finger)
@@ -593,3 +671,14 @@ class RoboLimbCAN(object):
         """
         self.__update_fingers()
         return self.__finger_current
+
+    @property
+    def quick_grip_(self):
+        """Queries quick grip and returns the result.
+
+        Returns
+        -------
+        grip : str
+                Current quick grip.
+        """
+        return self.__get_quick_grip()
