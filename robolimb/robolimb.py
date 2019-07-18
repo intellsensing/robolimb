@@ -4,9 +4,8 @@ from can.interfaces.pcan.basic import (PCANBasic, PCAN_USBBUS1, PCAN_BAUD_1M,
                                        PCAN_TYPE_ISA, PCAN_ERROR_QRCVEMPTY,
                                        PCAN_ERROR_OK, TPCANMsg,
                                        PCAN_MESSAGE_STANDARD)
-from .utils import RepeatedTimer
 
-# Refer to robo-limb manual for definition of number codes used below
+# Refer to robo-limb manual for definition of number codes below
 N_DOF = 6
 FINGERS = {'thumb': 1, 'index': 2, 'middle': 3, 'ring': 4,
            'little': 5, 'rotator': 6}
@@ -21,258 +20,520 @@ class RoboLimbCAN(object):
     Parameters
     ----------
     def_vel : int, optional (default: 297)
-        Default velocity for finger control. Has to be in range (10,297).
-    read_rate : float, optional (default: 0.02)
-        Update rate for incoming CAN messages [s]
+        Default velocity for finger control. Allowed range is (10,297).
     channel : pcan definition, optional (default: PCAN_USBBUS1)
-        CAN communication channel
+        CAN communication channel.
     b_rate : pcan definition, optional (default: PCAN_BAUD_1M)
-        CAN baud rate
+        CAN baud rate.
     hw_type : pcan definition, optional (default: PCAN_TYPE_ISA)
-        CAN hardware type
+        CAN hardware type.
     io_port : hex,  (default: 0x3BC)
-        CAN input-output port
+        CAN input-output port.
     interrupt : int, optional (default: 3)
-        CAN interrupt handler
+        CAN interrupt handler.
 
     Attributes
     ----------
-    finger_status : list
-        Finger status
-    finger_current : list
-        Finger currents
+    finger_status_ : list
+        Finger status.
+    finger_current_ : list
+        Finger currents.
+    rotator_edge_ : bool
+        ``True`` when rotator is fully palmar or lateral.
+    is_moving_ : bool
+        ``True`` if at least one digit is opening or closing.
+
+    Notes
+    -----
+    There seems to be an issue with the current values provided by the hand.
     """
 
     def __init__(self,
                  def_vel=297,
-                 read_rate=0.02,
                  channel=PCAN_USBBUS1,
                  b_rate=PCAN_BAUD_1M,
                  hw_type=PCAN_TYPE_ISA,
                  io_port=0x3BC,
                  interrupt=3):
+        self.def_vel = def_vel
         self.channel = channel
         self.b_rate = b_rate
         self.hw_type = hw_type
         self.io_port = io_port
         self.interrupt = interrupt
-        self.def_vel = def_vel
-        self.read_rate = read_rate
 
-        self.finger_status = [None] * N_DOF
-        self.finger_current = [None] * N_DOF
-
-        self.msg_read = RepeatedTimer(self.__read_messages, self.read_rate)
-        self.__is_moving = False
+        self.__finger_status = [None] * N_DOF
+        self.__finger_current = [None] * N_DOF
+        self.__rotator_edge = None
 
     def start(self):
-        """Starts the connection."""
+        """Starts the CAN BUS connection."""
         self.bus = PCANBasic()
-        self.bus.Initialize(Channel=self.channel, Btr0Btr1=self.b_rate,
-                            HwType=self.hw_type, IOPort=self.io_port,
-                            Interrupt=self.interrupt)
-        self.msg_read.start()
+        self.bus.Initialize(
+            Channel=self.channel,
+            Btr0Btr1=self.b_rate,
+            HwType=self.hw_type,
+            IOPort=self.io_port,
+            Interrupt=self.interrupt)
 
     def stop(self):
         """Stops reading incoming CAN messages and shuts down the
         connection."""
-        self.msg_read.stop()
         self.bus.Uninitialize(Channel=self.channel)
 
-    def open_finger(self, finger, velocity=None, force=True):
-        """Opens single digit at specified velocity.
+    def open_finger(self, finger, velocity=None, force=True, update=True):
+        """Opens digit at specified velocity.
 
         Parameters
         ----------
         finger : int or str
-            Finger ID
+            Finger ID.
         velocity : int, optional
-            Desired velocity.  Has to be in range (10,297). If not provided, the
+            Desired velocity.  Allowed range is (10,297). If not provided, the
             default velocity will be used.
         force : boolean, optional (default: True)
-            If False and the finger status is ```opening``` or ```stalled
-            open``` the command will not be sent.
+            If ``False`` and the finger status is ``opening`` or ``stalled
+            open``, the command will not be sent.
+        update : boolean, optional (default: True)
+            When set to ``True``, the finger status will be queried. When set
+            to ``False``, it is assumed that the finger status has been
+            recently queried and the ``__finger_status`` attribute is up to
+            date. When ``force`` is set to ``True``, this will be ignored.
         """
         velocity = self.def_vel if velocity is None else int(velocity)
         finger = self.__get_finger_id(finger)
-        if self.finger_status[finger - 1] in ['opening',
-                                              'stalled open'] and force is False:
-            pass
+        if force:
+            send_command = True
         else:
+            if update:
+                self.__update_fingers()
+            ok_status = ['opening', 'stalled open']
+            if self.__finger_status[finger - 1] in ok_status:
+                send_command = False
+            else:
+                send_command = True
+
+        if send_command:
             self.__motor_command(finger, ACTIONS['open'], velocity)
 
-    def close_finger(self, finger, velocity=None, force=True):
-        """Closes single digit at specified velocity.
+    def close_finger(self, finger, velocity=None, force=True, update=True):
+        """Closes digit at specified velocity.
 
         Parameters
         ----------
         finger : int or str
-            Finger ID
+            Finger ID.
         velocity : int, optional
-            Desired velocity.  Has to be in range (10,297). If not provided, the
+            Desired velocity.  Allowed range is (10,297). If not provided, the
             default velocity will be used.
         force : boolean, optional (default: True)
-            If False and the finger status is ```closing``` or ```stalled
-            close``` the command will not be sent.
-
+            If ``False`` and the finger status is ``closing`` or ``stalled
+            close``, the command will not be sent.
+        update : boolean, optional (default: True)
+            When set to ``True``, the finger status will be queried. When set
+            to ``False``, it is assumed that the finger status has been
+            recently queried and the ``__finger_status`` attribute is up to
+            date. When ``force`` is set to ``True``, this will be ignored.
         """
         velocity = self.def_vel if velocity is None else int(velocity)
         finger = self.__get_finger_id(finger)
-        if self.finger_status[finger - 1] in ['closing',
-                                              'stalled close'] and force is False:
-            pass
+        if force:
+            send_command = True
         else:
+            if update:
+                self.__update_fingers()
+            ok_status = ['closing', 'stalled close']
+            if self.__finger_status[finger - 1] in ok_status:
+                send_command = False
+            else:
+                send_command = True
+
+        if send_command:
             self.__motor_command(finger, ACTIONS['close'], velocity)
 
-    def stop_finger(self, finger, force=True):
-        """Stops execution of digit movement.
+    def stop_finger(self, finger, force=True, update=True):
+        """Stops digit movement.
 
         Parameters
         ----------
         finger : int or str
-            Finger ID
+            Finger ID.
         force : boolean, optional (default: True)
-            If the finger status is ```stop``` the command will not be sent.
+            If ``False`` and the finger status is ``stop`` or ``stalled
+            open`` or ``stalled close``, the command will not be sent.
+        update : boolean, optional (default: True)
+            When set to ``True``, the finger status will be queried. When set
+            to ``False``, it is assumed that the finger status has been
+            recently queried and the ``__finger_status`` attribute is up to
+            date. When ``force`` is set to ``True``, this will be ignored.
         """
         finger = self.__get_finger_id(finger)
-        if self.finger_status[finger - 1] is 'stop' and force is False:
-            pass
-        elif self.finger_status[finger - 1] in [
-                'stalled open', 'stalled closed'] and force is False:
-            self.finger_status[finger - 1] = 'stop'
+        if force:
+            send_command = True
         else:
+            if update:
+                self.__update_fingers()
+            ok_status = ['stalled open', 'stalled close', 'stop']
+            if self.__finger_status[finger - 1] in ok_status:
+                send_command = False
+            else:
+                send_command = True
+
+        if send_command:
             self.__motor_command(finger, ACTIONS['stop'], 297)
 
-    def open_fingers(self, velocity=None, force=True):
+    def open_fingers(self, velocity=None, force=True, update=True):
         """Opens all digits except thumb rotator at specified velocity.
 
         Parameters
         ----------
         velocity : int, optional
-            Desired velocity.  Has to be in range (10,297). If not provided, the
+            Desired velocity.  Allowed range is (10,297). If not provided, the
             default velocity will be used.
         force : boolean, optional (default: True)
-            If False and the finger status is ```opening``` or ```stalled
-            open``` the command will not be sent.
+            If ``False`` and the finger status is ``opening`` or ``stalled
+            open``, the command will not be sent.
+        update : boolean, optional (default: True)
+            When set to ``True``, the finger status will be queried. When set
+            to ``False``, it is assumed that the finger status has been
+            recently queried and the ``__finger_status`` attribute is up to
+            date. When ``force`` is set to ``True``, this will be ignored.
+
+        Notes
+        -----
+        When ```update`` is ``True``, the finger status in queried once for all
+        fingers before any finger specific commands are issued. The serial
+        finger commands are then issued with ``update=False``.
         """
         velocity = self.def_vel if velocity is None else int(velocity)
-        [self.open_finger(i, velocity=velocity, force=force) for i in range(
-            1, N_DOF)]
+        if not force and update:
+            self.__update_fingers()
 
-    def open_all(self, velocity=None, force=True):
+        [self.open_finger(i, velocity, force, False) for i in range(1, N_DOF)]
+
+    def open_all(self, velocity=None, force=True, update=True):
         """Opens all digits including thumb rotator at specified velocity.
 
         Parameters
         ----------
         velocity : int, optional
-            Desired velocity.  Has to be in range (10,297). If not provided, the
+            Desired velocity.  Allowed range is (10,297). If not provided, the
             default velocity will be used.
         force : boolean, optional (default: True)
-            If False and the finger status is ```opening``` or ```stalled
-            open``` the command will not be sent.
+            If ``False`` and the finger status is ``opening`` or ``stalled
+            open``, the command will not be sent.
+        update : boolean, optional (default: True)
+            When set to ``True``, the finger status will be queried. When set
+            to ``False``, it is assumed that the finger status has been
+            recently queried and the ``__finger_status`` attribute is up to
+            date. When ``force`` is set to ``True``, this will be ignored.
+
+        Notes
+        -----
+        When ```update`` is ``True``, the finger status in queried once for all
+        fingers before any finger specific commands are issued. The serial
+        finger commands are then issued with ``update=False``.
         """
         velocity = self.def_vel if velocity is None else int(velocity)
-        self.open_fingers(velocity=velocity, force=force)
-        threading.Timer(0.5, self.open_finger, [6, velocity, force]).start()
+        if not force and update:
+            self.__update_fingers()
 
-    def close_fingers(self, velocity=None, force=True):
+        self.open_fingers(velocity=velocity, force=force, update=False)
+        threading.Timer(
+            0.5,
+            self.open_finger,
+            [6, velocity, force, False]).start()
+
+    def close_fingers(self, velocity=None, force=True, update=True):
         """Closes all digits except thumb rotator at specified velocity.
 
         Parameters
         ----------
         velocity : int, optional
-            Desired velocity.  Has to be in range (10,297). If not provided, the
+            Desired velocity.  Allowed range is (10,297). If not provided, the
             default velocity will be used.
         force : boolean, optional (default: True)
-            If False and the finger status is ```closing``` or ```stalled
-            close``` the command will not be sent.
+            If ``False`` and the finger status is ``closing`` or ``stalled
+            close``, the command will not be sent.
+        update : boolean, optional (default: True)
+            When set to ``True``, the finger status will be queried. When set
+            to ``False``, it is assumed that the finger status has been
+            recently queried and the ``__finger_status`` attribute is up to
+            date. When ``force`` is set to ``True``, this will be ignored.
+
+        Notes
+        -----
+        When ```update`` is ``True``, the finger status in queried once for all
+        fingers before any finger specific commands are issued. The serial
+        finger commands are then issued with ``update=False``.
         """
         velocity = self.def_vel if velocity is None else int(velocity)
-        [self.close_finger(i, velocity=velocity, force=force) for i in range(
-            1, N_DOF)]
+        if not force and update:
+            self.__update_fingers()
 
-    def close_all(self, velocity=None, force=True):
+        [self.close_finger(i, velocity, force, False) for i in range(1, N_DOF)]
+
+    def close_all(self, velocity=None, force=True, update=True):
         """Closes all digits including thumb rotator at specified velocity.
 
         Parameters
         ----------
         velocity : int, optional
-            Desired velocity.  Has to be in range (10,297). If not provided, the
+            Desired velocity.  Allowed range is (10,297). If not provided, the
             default velocity will be used.
         force : boolean, optional (default: True)
-            If False and the finger status is ```closing``` or ```stalled
-            close``` the command will not be sent.
+            If ``False`` and the finger status is ``closing`` or ``stalled
+            close``, the command will not be sent.
+        update : boolean, optional (default: True)
+            When set to ``True``, the finger status will be queried. When set
+            to ``False``, it is assumed that the finger status has been
+            recently queried and the ``__finger_status`` attribute is up to
+            date. When ``force`` is set to ``True``, this will be ignored.
+
+        Notes
+        -----
+        When ```update`` is ``True``, the finger status in queried once for all
+        fingers before any finger specific commands are issued. The serial
+        finger commands are then issued with ``update=False``.
         """
         velocity = self.def_vel if velocity is None else int(velocity)
-        self.close_finger(6, velocity=velocity, force=force)
-        threading.Timer(0.5, self.close_fingers, [velocity, force]).start()
+        if not force and update:
+            self.__update_fingers()
 
-    def stop_fingers(self, force=True):
-        """Stops execution of movement for all digits except thumb rotator.
+        self.close_finger(6, velocity=velocity, force=force, update=False)
+        threading.Timer(
+            0.5,
+            self.close_fingers,
+            [velocity, force, False]).start()
 
-        Parameters
-        ----------
-        force : boolean, optional (default: True)
-            If the finger status is ```stop``` the command will not be sent.
-        """
-        [self.stop_finger(i, force=force) for i in range(1, N_DOF)]
-
-    def stop_all(self, force=True):
-        """Stops execution of movement for all digits including thumb
-        rotator.
+    def stop_fingers(self, force=True, update=True):
+        """Stops movement for all digits except thumb rotator.
 
         Parameters
         ----------
         force : boolean, optional (default: True)
-            If the finger status is ```stop``` the command will not be sent.
-        """
-        [self.stop_finger(i, force=force) for i in range(1, N_DOF + 1)]
+            If ``False`` and the finger status is ``stop`` or ``stalled
+            open`` or ``stalled close``, the command will not be sent.
+        update : boolean, optional (default: True)
+            When set to ``True``, the finger status will be queried. When set
+            to ``False``, it is assumed that the finger status has been
+            recently queried and the ``__finger_status`` attribute is up to
+            date. When ``force`` is set to ``True``, this will be ignored.
 
-    def __create_message(self, action, velocity):
-        """Creates a CAN message for a motor command."""
-        velocity = format(velocity, '04x')
-        msg = [0] * 4
-        msg[0] = '00'  # Empty
-        msg[1] = str(action)
-        msg[2] = velocity[0:2]
-        msg[3] = velocity[2:4]
-        return msg
-
-    def __read_messages(self):
-        """Reads at least one time the queue looking for messages. If a
-        message is found, looks again until queue is empty or an error occurs.
+        Notes
+        -----
+        When ```update`` is ``True``, the finger status in queried once for all
+        fingers before any finger specific commands are issued. The serial
+        finger commands are then issued with ``update=False``.
         """
-        stsResult = 0
-        while not (stsResult & PCAN_ERROR_QRCVEMPTY):
-            can_msg = self.bus.Read(self.channel)
-            if can_msg[0] == PCAN_ERROR_OK:
-                self.__process_message(can_msg)
-            stsResult = can_msg[0]
+        if not force and update:
+            self.__update_fingers()
+        [self.stop_finger(i, force, False) for i in range(1, N_DOF)]
 
-    def __process_message(self, can_msg):
-        """Processes an incoming CAN message and updates finger_status and
-        finger_current attributes.
+    def stop_all(self, force=True, update=True):
+        """Stops movement for all digits including thumb rotator.
+
+        Parameters
+        ----------
+        force : boolean, optional (default: True)
+            If ``False`` and the finger status is ``stop`` or ``stalled
+            open`` or ``stalled close``, the command will not be sent.
+        update : boolean, optional (default: True)
+            When set to ``True``, the finger status will be queried. When set
+            to ``False``, it is assumed that the finger status has been
+            recently queried and the ``__finger_status`` attribute is up to
+            date. When ``force`` is set to ``True``, this will be ignored.
+
+        Notes
+        -----
+        When ```update`` is ``True``, the finger status in queried once for all
+        fingers before any finger specific commands are issued. The serial
+        finger commands are then issued with ``update=False``.
         """
-        finger_id = self.__can_to_finger_id(hex(can_msg[1].ID))
-        self.finger_status[finger_id - 1] = STATUS[can_msg[1].DATA[1]]
-        self.__is_moving = bool(len(set(self.finger_status) &
-                                    {'opening', 'closing'}))
-        current_hex = str(can_msg[1].DATA[2]) + str(can_msg[1].DATA[3])
-        current_hex = str(int(hex(can_msg[1].DATA[2]), 16)) + str(int(hex(
-            can_msg[1].DATA[3]), 16))
-        # See p. 11 of robo-limb manual for conversion to Amps
-        self.finger_current[finger_id - 1] = int(current_hex, 16) / 21.825
+        if not force and update:
+            self.__update_fingers()
+        [self.stop_finger(i, force, False) for i in range(1, N_DOF + 1)]
+
+    def get_serial_number(self):
+        """Queries the device serial number.
+
+        Returns
+        -------
+        sn : str
+            Device serial number.
+        """
+        id = int('0x402', 16)
+        msg = ['0', '0', '0', '0']
+        can_msg = self.__can_message(id, msg)
+
+        # Reset queue such that first received message is the query response
+        self.reset_bus()
+        self.bus.Write(self.channel, can_msg)
+        sn_msg = self.__read_messages(num_messages=1)[0]
+        # See manual p.14 for message format
+        letters = hex(sn_msg[1].DATA[0])[2:] + hex(sn_msg[1].DATA[1])[2:]
+        numbers = hex(sn_msg[1].DATA[2])[2:] + hex(sn_msg[1].DATA[3])[2:]
+        sn = bytearray.fromhex(letters).decode() + str(int(numbers, 16))
+        return sn
+
+    def reset_bus(self):
+        """Resets the receive and transmit queues of the PCAN channel."""
+        self.bus.Reset(self.channel)
+
+    def __can_message(self, id, data):
+        """Creates a CAN message from corresponding CAN ID and data.
+
+        Parameters
+        ----------
+        message_id : int
+            CAN message ID.
+
+        message_data : list of str
+            CAN message data. A list of strings of length 4 is expected.
+
+        Returns
+        -------
+        can_msg : pcan definition
+            CAN message.
+        """
+        can_msg = TPCANMsg()
+        can_msg.ID = id
+        can_msg.LEN = 4
+        can_msg.MSGTYPE = PCAN_MESSAGE_STANDARD
+        for i in range(can_msg.LEN):
+            can_msg.DATA[i] = int(data[i], 16)
+
+        return can_msg
 
     def __motor_command(self, finger, action, velocity):
-        """Issues a low-level finger command."""
-        CANMsg = TPCANMsg()
-        CANMsg.ID = self.__finger_to_can_id(finger)
-        CANMsg.LEN = 4
-        CANMsg.MSGTYPE = PCAN_MESSAGE_STANDARD
-        msg = self.__create_message(action=action, velocity=velocity)
-        for i in range(CANMsg.LEN):
-            CANMsg.DATA[i] = int(msg[i], 16)
-        self.bus.Write(self.channel, CANMsg)
+        """Issues a low-level finger command.
+
+        Parameters
+        ----------
+        finger : int or str
+            Finger ID.
+        action : str
+            Finger action. One of ``['open', 'close', 'stop']``.
+        velocity : int, optional
+            Desired velocity.  Allowed range is (10,297). If not provided, the
+            default velocity will be used.
+        """
+        id, data = self.__motor_message(finger, action, velocity)
+        can_msg = self.__can_message(id, data)
+        self.bus.Write(self.channel, can_msg)
+
+    def __motor_message(self, finger, action, velocity):
+        """Creates CAN message ID and data for a motor command.
+
+        Parameters
+        ----------
+        finger : int or str
+            Finger ID.
+        action : str
+            Finger action. One of ``['open', 'close', 'stop']``.
+        velocity : int, optional
+            Desired velocity.  Allowed range is (10,297). If not provided, the
+            default velocity will be used.
+
+        Returns
+        -------
+        id : int
+            CAN message ID.
+        data : list
+            CAN message data.
+        """
+        id = self.__finger_to_can_id(finger)
+        velocity = format(velocity, '04x')
+        data = [0] * 4
+        data[0] = '00'  # Empty
+        data[1] = str(action)
+        data[2] = velocity[0:2]
+        data[3] = velocity[2:4]
+        return id, data
+
+    def __read_messages(self, num_messages=None):
+        """Reads either a specified number of messages or all available
+        messages from the queue.
+
+        Parameters
+        ----------
+        num_messages : int, optional (default: None)
+            Number of messages to read. If ``None``, read all messages unti
+            queue is empty.
+
+        Returns
+        -------
+        messages : list
+            List of incoming CAN messages.
+
+        Notes
+        -----
+        When the number of messages is specified, the method will block
+        execution until the messages become available, i.e., there is no
+        timeout implementation. If, for any reason, CAN messages do not arrive
+        in the queue, the program may not exit the loop.
+        """
+        messages = []
+        if num_messages:
+            while len(messages) < num_messages:
+                can_msg = self.bus.Read(self.channel)
+                if can_msg[0] == PCAN_ERROR_OK:
+                    messages.append(can_msg)
+        else:
+            res = 0
+            while res != PCAN_ERROR_QRCVEMPTY:
+                can_msg = self.bus.Read(self.channel)
+                res = can_msg[0]
+                if res == PCAN_ERROR_OK:
+                    messages.append(can_msg)
+
+        return messages
+
+    def __process_feedback_message(self, can_msg):
+        """Processes an incoming CAN feedback message.
+
+        Parameters
+        ----------
+        can_msg : pcan definition
+            CAN message.
+
+        Returns
+        -------
+        finger_id : int
+            Finger ID.
+        status : str
+            Finger status.
+        thumb_edge : bool
+            ``True when thumb rotator is fully palmar or lateral. For all other
+            digits ``None`` will be returned.
+        current : float
+            Motor current (in Amps).
+        """
+        finger_id = self.__can_to_finger_id(hex(can_msg[1].ID))
+        if finger_id == 6:
+            thumb_edge = bool(int(hex(can_msg[1].DATA[0]), 16))
+        else:
+            thumb_edge = None
+        status = STATUS[can_msg[1].DATA[1]]
+        current_hex = '0x' + hex(can_msg[1].DATA[2])[2:] + \
+            hex(can_msg[1].DATA[3])[2:]
+        # See p. 11 of robo-limb manual for conversion to Amps
+        current = int(current_hex, 16) / 21.825
+
+        return (finger_id, status, thumb_edge, current)
+
+    def __update_fingers(self):
+        """Requests 6 CAN feedback messages and updates finger status and
+        currents."""
+        self.reset_bus()
+        msgs = self.__read_messages(num_messages=6)
+        for msg in msgs:
+            result = self.__process_feedback_message(msg)
+            f_id, f_status, thumb_edge, f_current = result
+            self.__finger_status[f_id - 1] = f_status
+            self.__finger_current[f_id - 1] = f_current
+            if f_id == 6:
+                self.__rotator_edge = thumb_edge
 
     def __get_finger_id(self, finger):
         """Returns finger ID. Input can be either int or string."""
@@ -287,9 +548,48 @@ class RoboLimbCAN(object):
         return int(id_string[4])
 
     def __del__(self):
+        """Stops CAN bus connection upon destruction."""
         self.stop()
 
     @property
-    def is_moving(self):
-        """Flag indicating whether at least one finger is moving."""
-        return self.__is_moving
+    def is_moving_(self):
+        """Updates the digits status and returns `True` if at least one digit
+        is opening or closing."""
+        self.__update_fingers()
+        return any(x in ['opening', 'closing'] for x in self.__finger_status)
+
+    @property
+    def finger_status_(self):
+        """Updates the digits status and returns the result.
+
+        Returns
+        -------
+        finger_status : list
+                List of status with one element per digit.
+        """
+        self.__update_fingers()
+        return self.__finger_status
+
+    @property
+    def rotator_edge_(self):
+        """Updates the thumb rotator status and returns the result.
+
+        Returns
+        -------
+        thumb_edge : bool
+            `True` when thumb rotator is fully palmar or lateral.
+        """
+        self.__update_fingers()
+        return self.__rotator_edge
+
+    @property
+    def finger_current_(self):
+        """Updates the digits currents and returns the result.
+
+        Returns
+        -------
+        finger_current : list
+                List of currents with one element per digit.
+        """
+        self.__update_fingers()
+        return self.__finger_current

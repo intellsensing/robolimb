@@ -20,7 +20,6 @@ grips = {1: "cylindrical", 2: "lateral", 3: "tripod", 4: "tripod_ext",
 class RoboLimbGrip(RoboLimb):
     def __init__(self,
                  def_vel=297,
-                 read_rate=0.02,
                  channel=PCAN_USBBUS1,
                  b_rate=PCAN_BAUD_1M,
                  hw_type=PCAN_TYPE_ISA,
@@ -28,7 +27,6 @@ class RoboLimbGrip(RoboLimb):
                  interrupt=3):
         super().__init__(
             def_vel,
-            read_rate,
             channel,
             b_rate,
             hw_type,
