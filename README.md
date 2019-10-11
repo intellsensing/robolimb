@@ -7,6 +7,18 @@ The code provides a basic, low-level interface for controlling the hand digits a
 
 For technical details please refer to the device user manual which can be found in [user_manual](user_manual).
 
+Here is a minimal example:
+```python
+import time
+from robolimb import RoboLimbCAN
+
+r = RoboLimbCAN()
+r.start()
+r.close_finger(2)
+time.sleep(1.5)
+r.stop()
+```
+
 ## Dependencies
 * Python >= 3.6 (other versions have not been tested may or may not work)
 * [python-can](https://pypi.python.org/pypi/python-can/) 
