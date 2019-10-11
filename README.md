@@ -7,12 +7,13 @@ The code provides a basic, low-level interface for controlling the hand digits a
 
 For technical details please refer to the device user manual which can be found in [user_manual](user_manual).
 
-Here is a minimal example:
+Here is a minimal example that initiates a connection to the hand, sends a close command for the index finger, closes the connection with the hand and, finally, stops execution:
+
 ```python
 import time
-from robolimb import RoboLimbCAN
+from robolimb import RoboLimbCAN as RL
 
-r = RoboLimbCAN()
+r = RL()
 r.start()
 r.close_finger(2)
 time.sleep(1.5)
