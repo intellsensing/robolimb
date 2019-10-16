@@ -7,7 +7,7 @@ The code provides a basic, low-level interface for controlling the hand digits a
 
 For technical details please refer to the device user manual which can be found in [user_manual](user_manual).
 
-Here is a minimal example that initiates a connection to the hand, sends a close command for the index finger, closes the connection with the hand and, finally, stops execution:
+Here is a minimal example that initiates a connection to the hand, sends a close command for the index finger and closes the connection with the hand:
 
 ```python
 import time
@@ -21,5 +21,5 @@ r.stop()
 ```
 
 ## Dependencies
-* Python >= 3.6 (other versions have not been tested may or may not work)
+* Python >= 3.6 (other versions have not been tested and may or may not work)
 * [python-can](https://pypi.python.org/pypi/python-can/) 
