@@ -23,3 +23,7 @@ r.stop()
 ## Dependencies
 * Python >= 3.6 (other versions have not been tested and may or may not work)
 * [python-can](https://pypi.python.org/pypi/python-can/) 
+
+## Notes
+* Only tested using the [PCAN-USB](https://www.peak-system.com/PCAN-USB.199.0.html?&L=1) interface. Device drivers need to be installed (available for Windows and Linux). 
+* CAN feedback messages do not seem to be very reliable. There also seems to be a delay between finger state and feedback messages. 
